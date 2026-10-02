@@ -588,7 +588,7 @@ function openEntry(e, onClose) {
   mark();
   entryForm.getChosen = () => chosen;
 
-  entryDlg.showModal();
+  openDialog(entryDlg);
   // PCでは内容欄にすぐ入力できるように。スマホではキーボードが出て邪魔なので任意
   if (matchMedia('(pointer: fine)').matches) entryForm.elements.title.focus();
 }
@@ -740,7 +740,7 @@ function openSettings() {
   setForm.endHour.value = settings.endHour;
   setForm.weekStart.value = settings.weekStart;
   $('#set-msg').textContent = '';
-  setDlg.showModal();
+  openDialog(setDlg);
 }
 
 setForm.addEventListener('submit', ev => {
@@ -762,7 +762,7 @@ function openCsv() {
   csvForm.from.value = days[0];
   csvForm.to.value = days[days.length - 1];
   $('#csv-msg').textContent = '';
-  csvDlg.showModal();
+  openDialog(csvDlg);
 }
 
 csvForm.addEventListener('submit', async ev => {
@@ -832,6 +832,12 @@ function setView(v) {
   refresh();
 }
 
+// スマホでは開いた直後に入力欄へフォーカスが当たると、ピッカーやキーボードが勝手に出るので外す
+function openDialog(d) {
+  d.showModal();
+  if (!hasMouse && document.activeElement?.matches('input, select, textarea')) document.activeElement.blur();
+}
+
 let toastTimer;
 function toast(text) {
   const t = $('#toast');
@@ -853,9 +859,9 @@ function bindStatic() {
   menu.addEventListener('click', async e => {
     const act = e.target.dataset.act;
     if (act === 'csv') openCsv();
-    if (act === 'categories') { renderCategoryList(); catDlg.showModal(); }
+    if (act === 'categories') { renderCategoryList(); openDialog(catDlg); }
     if (act === 'settings') openSettings();
-    if (act === 'keys') $('#keys-dlg').showModal();
+    if (act === 'keys') openDialog($('#keys-dlg'));
     if (act === 'logout') await store.signOut();
   });
 

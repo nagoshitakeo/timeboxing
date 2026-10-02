@@ -57,7 +57,7 @@
 
 <!-- 予定の入力 -->
 <dialog id="entry-dlg">
-  <form method="dialog" id="entry-form">
+  <form method="dialog" id="entry-form" tabindex="-1" autofocus>
     <div class="row time-row">
       <input type="date" name="day" required>
       <select name="start"></select>
@@ -81,7 +81,7 @@
 
 <!-- カテゴリ管理 -->
 <dialog id="cat-dlg">
-  <div class="dlg-body">
+  <div class="dlg-body" tabindex="-1" autofocus>
     <h2>カテゴリ管理</h2>
     <ul id="cat-list" class="cat-list"></ul>
     <form id="cat-add" class="row">
@@ -96,7 +96,7 @@
 
 <!-- 表示設定 -->
 <dialog id="set-dlg">
-  <form method="dialog" id="set-form" class="dlg-body">
+  <form method="dialog" id="set-form" class="dlg-body" tabindex="-1" autofocus>
     <h2>表示設定</h2>
     <label class="row">表示する時間帯
       <select name="startHour"></select>〜<select name="endHour"></select>
@@ -111,7 +111,7 @@
 
 <!-- キー操作 -->
 <dialog id="keys-dlg">
-  <div class="dlg-body">
+  <div class="dlg-body" tabindex="-1" autofocus>
     <h2>キー操作</h2>
     <table class="keys">
       <tr><td><kbd>↑</kbd><kbd>↓</kbd> / <kbd>K</kbd><kbd>J</kbd></td><td>カーソルを15分ずつ上下</td></tr>
@@ -129,7 +129,7 @@
 
 <!-- CSV -->
 <dialog id="csv-dlg">
-  <form method="dialog" id="csv-form" class="dlg-body">
+  <form method="dialog" id="csv-form" class="dlg-body" tabindex="-1" autofocus>
     <h2>CSV出力</h2>
     <label class="row">期間 <input type="date" name="from" required> 〜 <input type="date" name="to" required></label>
     <p class="msg" id="csv-msg"></p>
