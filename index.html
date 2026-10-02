@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>タイムボックス</title>
+<meta name="theme-color" content="#1f6feb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="タイムボックス">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ログイン -->
+<section id="login" hidden>
+  <form id="login-form" class="login-card">
+    <h1>タイムボックス</h1>
+    <label>メールアドレス<input type="email" name="email" autocomplete="username" required></label>
+    <label>パスワード<input type="password" name="password" autocomplete="current-password" minlength="6" required></label>
+    <p class="msg" id="login-msg"></p>
+    <button type="submit" class="primary">ログイン</button>
+    <button type="button" id="signup-btn" class="link">新規登録</button>
+  </form>
+</section>
+
+<!-- メイン -->
+<section id="app" hidden>
+  <header class="bar">
+    <div class="nav">
+      <button id="prev" class="icon" aria-label="前へ">‹</button>
+      <button id="today">今日</button>
+      <button id="next" class="icon" aria-label="次へ">›</button>
+      <span id="range-label"></span>
+    </div>
+    <div class="tools">
+      <div class="seg" role="group" aria-label="表示切替">
+        <button data-view="day">日</button>
+        <button data-view="week">週</button>
+      </div>
+      <button id="menu-btn" class="icon" aria-label="メニュー">☰</button>
+    </div>
+    <div id="menu" class="menu" hidden>
+      <button data-act="csv">CSV出力</button>
+      <button data-act="categories">カテゴリ管理</button>
+      <button data-act="settings">表示設定</button>
+      <button data-act="keys" id="keys-item">キー操作</button>
+      <button data-act="logout" id="logout-item">ログアウト</button>
+    </div>
+  </header>
+  <div id="demo-note" class="demo-note" hidden>デモモード：この端末だけに保存されます</div>
+  <main id="board"></main>
+  <div id="toast" class="toast" hidden></div>
+</section>
+
+<!-- 予定の入力 -->
+<dialog id="entry-dlg">
+  <form method="dialog" id="entry-form">
+    <div class="row time-row">
+      <input type="date" name="day" required>
+      <select name="start"></select>
+      <span>〜</span>
+      <select name="end"></select>
+    </div>
+    <div class="chips" id="cat-chips"></div>
+    <div class="row">
+      <input type="text" name="title" maxlength="20" placeholder="内容（20文字まで）" autocomplete="off" enterkeyhint="done">
+      <span class="count" id="title-count">0/20</span>
+    </div>
+    <p class="msg" id="entry-msg"></p>
+    <div class="actions">
+      <button type="button" id="entry-del" class="danger">削除</button>
+      <span class="spacer"></span>
+      <button type="button" data-close>キャンセル</button>
+      <button type="submit" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- カテゴリ管理 -->
+<dialog id="cat-dlg">
+  <div class="dlg-body">
+    <h2>カテゴリ管理</h2>
+    <ul id="cat-list" class="cat-list"></ul>
+    <form id="cat-add" class="row">
+      <input type="color" name="color" value="#4f7cff">
+      <input type="text" name="name" maxlength="20" placeholder="新しいカテゴリ名" required autocomplete="off">
+      <button type="submit" class="primary">追加</button>
+    </form>
+    <p class="hint">「表示」を外すと選択肢から消えます（過去の予定はそのまま残ります）。削除すると、そのカテゴリの予定は「未分類」になります。</p>
+    <div class="actions"><span class="spacer"></span><button type="button" data-close>閉じる</button></div>
+  </div>
+</dialog>
+
+<!-- 表示設定 -->
+<dialog id="set-dlg">
+  <form method="dialog" id="set-form" class="dlg-body">
+    <h2>表示設定</h2>
+    <label class="row">表示する時間帯
+      <select name="startHour"></select>〜<select name="endHour"></select>
+    </label>
+    <label class="row">週の始まり
+      <select name="weekStart"><option value="1">月曜</option><option value="0">日曜</option></select>
+    </label>
+    <p class="msg" id="set-msg"></p>
+    <div class="actions"><span class="spacer"></span><button type="button" data-close>キャンセル</button><button type="submit" class="primary">保存</button></div>
+  </form>
+</dialog>
+
+<!-- キー操作 -->
+<dialog id="keys-dlg">
+  <div class="dlg-body">
+    <h2>キー操作</h2>
+    <table class="keys">
+      <tr><td><kbd>↑</kbd><kbd>↓</kbd> / <kbd>K</kbd><kbd>J</kbd></td><td>カーソルを15分ずつ上下</td></tr>
+      <tr><td><kbd>←</kbd><kbd>→</kbd> / <kbd>H</kbd><kbd>L</kbd></td><td>前後の日へ（週の端を越えると週も移動）</td></tr>
+      <tr><td><kbd>Space</kbd> / <kbd>Enter</kbd></td><td>予定があれば開く／空きなら選択開始 → ↑↓で範囲を広げてもう一度押すと登録</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>選択を取り消し</td></tr>
+      <tr><td><kbd>T</kbd></td><td>今日へ</td></tr>
+      <tr><td><kbd>D</kbd> / <kbd>W</kbd></td><td>日表示／週表示</td></tr>
+      <tr><td>入力画面で <kbd>Enter</kbd></td><td>保存</td></tr>
+    </table>
+    <p class="hint">マウス：予定をドラッグで移動、予定の下端をドラッグで長さ変更</p>
+    <div class="actions"><span class="spacer"></span><button type="button" data-close>閉じる</button></div>
+  </div>
+</dialog>
+
+<!-- CSV -->
+<dialog id="csv-dlg">
+  <form method="dialog" id="csv-form" class="dlg-body">
+    <h2>CSV出力</h2>
+    <label class="row">期間 <input type="date" name="from" required> 〜 <input type="date" name="to" required></label>
+    <p class="msg" id="csv-msg"></p>
+    <div class="actions"><span class="spacer"></span><button type="button" data-close>キャンセル</button><button type="submit" class="primary">ダウンロード</button></div>
+  </form>
+</dialog>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
