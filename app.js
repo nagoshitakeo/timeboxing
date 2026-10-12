@@ -147,7 +147,10 @@ function render() {
   for (const d of days) {
     const wd = parseDay(d).getDay();
     const h = el('div', 'dayhead' + (d === today ? ' today' : '') + (wd === 0 ? ' sun' : wd === 6 ? ' sat' : ''));
-    h.textContent = dayLabel(d);
+    // スマホの週表示は幅が足りないので「12(月)」まで短くする
+    h.textContent = days.length > 1 && matchMedia('(max-width: 480px)').matches
+      ? `${parseDay(d).getDate()}(${WD[wd]})`
+      : dayLabel(d);
     if (days.length > 1) {
       h.style.cursor = 'pointer';
       h.title = 'この日を表示';
