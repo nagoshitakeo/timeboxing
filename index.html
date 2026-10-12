@@ -47,6 +47,7 @@
       <button id="menu-btn" class="icon" aria-label="メニュー">☰</button>
     </div>
     <div id="menu" class="menu" hidden>
+      <button data-act="reflect">振り返り</button>
       <button data-act="csv">CSV出力</button>
       <button data-act="categories">カテゴリ管理</button>
       <button data-act="settings">表示設定</button>
@@ -90,6 +91,11 @@
     <div class="row">
       <input type="text" name="title" maxlength="20" placeholder="内容（20文字まで）" autocomplete="off" enterkeyhint="done">
       <span class="count" id="title-count">0/20</span>
+    </div>
+    <div id="reflect-box" class="reflect-box">
+      <div class="reflect-label">ふりかえり <span class="hint">（任意）</span></div>
+      <div class="moods" id="moods"></div>
+      <input type="text" name="note" maxlength="100" placeholder="やってみてどうだった？（100文字まで）" autocomplete="off" enterkeyhint="done">
     </div>
     <p class="msg" id="entry-msg"></p>
     <div class="actions">
@@ -169,11 +175,39 @@
   </div>
 </dialog>
 
+<!-- 日のメモ -->
+<dialog id="note-dlg">
+  <form method="dialog" id="note-form" class="dlg-body" tabindex="-1" autofocus>
+    <h2 id="note-title"></h2>
+    <textarea name="body" rows="8" maxlength="1000" placeholder="今日のこと、なんでも"></textarea>
+    <div class="row"><span class="spacer"></span><span class="count" id="note-count">0/1000</span></div>
+    <p class="msg" id="note-msg"></p>
+    <div class="actions"><span class="spacer"></span><button type="button" data-close>キャンセル</button><button type="submit" class="primary">保存</button></div>
+  </form>
+</dialog>
+
+<!-- 振り返り -->
+<dialog id="reflect-dlg" class="tall">
+  <div class="dlg-body" tabindex="-1" autofocus>
+    <h2>振り返り</h2>
+    <form id="reflect-form" class="row">
+      <input type="date" name="from" required> 〜 <input type="date" name="to" required>
+      <input type="search" name="q" placeholder="キーワード" autocomplete="off">
+    </form>
+    <div id="reflect-list" class="reflect-list"></div>
+    <div class="actions"><span class="spacer"></span><button type="button" data-close>閉じる</button></div>
+  </div>
+</dialog>
+
 <!-- CSV -->
 <dialog id="csv-dlg">
   <form method="dialog" id="csv-form" class="dlg-body" tabindex="-1" autofocus>
     <h2>CSV出力</h2>
     <label class="row">期間 <input type="date" name="from" required> 〜 <input type="date" name="to" required></label>
+    <div class="row">
+      <label class="radio"><input type="radio" name="kind" value="entries" checked> 予定（気分・ひとこと付き）</label>
+      <label class="radio"><input type="radio" name="kind" value="notes"> 日のメモ</label>
+    </div>
     <p class="msg" id="csv-msg"></p>
     <div class="actions"><span class="spacer"></span><button type="button" data-close>キャンセル</button><button type="submit" class="primary">ダウンロード</button></div>
   </form>

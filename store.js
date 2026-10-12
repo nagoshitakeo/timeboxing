@@ -1,6 +1,6 @@
 // データの読み書き。Supabase とローカル（デモ）の2実装を同じ形で提供する。
 
-const ENTRY_FIELDS = ['day', 'start_slot', 'end_slot', 'category_id', 'title'];
+const ENTRY_FIELDS = ['day', 'start_slot', 'end_slot', 'category_id', 'title', 'mood', 'note'];
 const CATEGORY_FIELDS = ['name', 'color', 'sort_order', 'archived'];
 const INBOX_FIELDS = ['title', 'category_id'];
 
@@ -85,6 +85,22 @@ function supabaseStore(sb) {
     async deleteInbox(id) {
       check(await sb.from('inbox').delete().eq('id', id));
     },
+
+    async listDayNotes(from, to) {
+      return check(await sb.from('day_notes').select('day, body').gte('day', from).lte('day', to).order('day'));
+    },
+    // 空にしたら消す
+    async saveDayNote(day, body) {
+      if (!body) {
+        check(await sb.from('day_notes').delete().eq('day', day));
+        return;
+      }
+      const { data } = await sb.auth.getSession();
+      check(await sb.from('day_notes').upsert(
+        { user_id: data.session.user.id, day, body, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id,day' },
+      ));
+    },
   };
 }
 
@@ -100,6 +116,7 @@ function localStore() {
   // localStorage が使えない環境でもセッション中は動くようメモリに保持
   let db = read();
   db.inbox ??= [];
+  db.dayNotes ??= {};
   const commit = () => write(db);
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
     : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -179,6 +196,15 @@ function localStore() {
     },
     async deleteInbox(id) {
       db.inbox = db.inbox.filter(i => i.id !== id);
+      commit();
+    },
+
+    async listDayNotes(from, to) {
+      return Object.entries(db.dayNotes).filter(([d]) => d >= from && d <= to)
+        .sort(([a], [b]) => a.localeCompare(b)).map(([day, body]) => ({ day, body }));
+    },
+    async saveDayNote(day, body) {
+      if (body) db.dayNotes[day] = body; else delete db.dayNotes[day];
       commit();
     },
   };

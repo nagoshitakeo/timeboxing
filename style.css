@@ -273,6 +273,7 @@ dialog form, .dlg-body { display: grid; gap: 12px; }
 .bar button { white-space: nowrap; }
 .time-row input[type=date] { flex: 1 1 140px; }
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.actions .primary { margin-left: auto; } /* 折り返しても保存ボタンは右端 */
 .spacer { flex: 1; }
 .count { color: var(--muted); font-size: 12px; flex: none; }
 .entry-form .row input[type=text] { flex: 1; }
@@ -280,6 +281,53 @@ dialog form, .dlg-body { display: grid; gap: 12px; }
 .msg { color: var(--danger); margin: 0; min-height: 0; font-size: 13px; }
 .msg:empty { display: none; }
 .hint { color: var(--muted); font-size: 12px; margin: 0; }
+
+/* ---------- ふりかえり・日のメモ ---------- */
+textarea {
+  font: inherit; font-size: 16px; color: inherit; background: var(--bg);
+  border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px; width: 100%; resize: vertical;
+}
+input[type=search] { font-size: 16px; flex: 1 1 140px; }
+.reflect-box { display: grid; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--line-strong); }
+.reflect-label { font-size: 13px; font-weight: 600; }
+.moods { display: flex; gap: 6px; }
+.moods button {
+  font-size: 22px; line-height: 1; padding: 6px 0; flex: 1; max-width: 52px;
+  background: var(--bg); filter: grayscale(1); opacity: .55;
+}
+.moods button.on { filter: none; opacity: 1; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, var(--bg)); }
+.radio { display: flex; align-items: center; gap: 4px; margin-right: 10px; }
+
+.entry .mood {
+  position: absolute; top: 1px; right: 3px; font-size: 13px; line-height: 1;
+  background: var(--bg); border-radius: 50%; padding: 1px;
+}
+.entry.short .mood { top: 50%; transform: translateY(-50%); }
+
+.dayhead .memo {
+  margin-left: 6px; padding: 1px 8px; font-size: 12px; border-radius: 999px; vertical-align: 1px;
+}
+.dayhead .memo.has { border-color: var(--accent); color: var(--accent); }
+.dayhead .dot {
+  position: absolute; top: 3px; right: 3px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+}
+
+dialog.tall { height: min(720px, calc(100dvh - 24px)); }
+dialog.tall .dlg-body { height: 100%; grid-template-rows: auto auto 1fr auto; }
+.reflect-list { overflow: auto; min-height: 0; display: grid; gap: 14px; align-content: start; }
+.reflect-day h3 { margin: 0 0 6px; font-size: 14px; }
+.reflect-day .memo-body {
+  white-space: pre-wrap; background: var(--surface); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 13px;
+}
+.reflect-item {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 8px;
+  padding: 6px 0 6px 8px; border-left: 3px solid var(--c, var(--line-strong)); margin-bottom: 4px; font-size: 13px;
+}
+.reflect-item .m { font-size: 18px; grid-row: span 2; align-self: center; width: 22px; text-align: center; }
+.reflect-item .h { color: var(--muted); font-size: 12px; }
+.reflect-item .n { white-space: pre-wrap; }
+.reflect-list mark { background: color-mix(in srgb, #ffd33d 45%, transparent); color: inherit; border-radius: 2px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips button {

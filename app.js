@@ -27,9 +27,14 @@ const state = {
   categories: [],
   entries: new Map(), // day -> entry[]
   inbox: [],
+  dayNotes: new Map(), // day -> 日のメモ本文
   placing: null, // 「時間割に置く」中の inbox 項目
   lastCat: ls.get('tb.lastCat', null),
 };
+
+// 気分スタンプ（値が大きいほど良い）
+const MOODS = [[5, '😆'], [4, '🙂'], [3, '😐'], [2, '😟'], [1, '😣']];
+const moodEmoji = v => MOODS.find(([m]) => m === v)?.[1] ?? '';
 
 const DEFAULT_CATEGORIES = [
   ['会議', '#4f7cff'], ['作業', '#2da44e'], ['連絡・調整', '#e3a008'], ['移動', '#8b949e'], ['休憩', '#d97bd0'],
@@ -101,9 +106,13 @@ async function refresh() {
   render(); // 先に枠だけ描いて体感速度を上げる
   const days = visibleDays();
   try {
-    const rows = await store.listEntries(days[0], days[days.length - 1]);
-    days.forEach(d => state.entries.set(d, []));
+    const [rows, notes] = await Promise.all([
+      store.listEntries(days[0], days[days.length - 1]),
+      store.listDayNotes(days[0], days[days.length - 1]),
+    ]);
+    days.forEach(d => { state.entries.set(d, []); state.dayNotes.delete(d); });
     rows.forEach(r => state.entries.get(r.day)?.push(r));
+    notes.forEach(n => state.dayNotes.set(n.day, n.body));
     render();
   } catch (e) {
     toast('読み込みに失敗しました：' + e.message);
@@ -152,7 +161,21 @@ function render() {
     h.textContent = days.length > 1 && matchMedia('(max-width: 480px)').matches
       ? `${parseDay(d).getDate()}(${WD[wd]})`
       : dayLabel(d);
-    if (days.length > 1) {
+    if (days.length === 1) {
+      // 日表示：見出しに「メモ」ボタン（書いてあれば色付き）
+      const b = el('button', 'memo' + (state.dayNotes.has(d) ? ' has' : ''));
+      b.type = 'button';
+      b.textContent = state.dayNotes.has(d) ? 'メモ ✓' : 'メモ';
+      b.title = state.dayNotes.get(d) || 'この日のメモを書く';
+      b.onclick = () => openDayNote(d);
+      h.append(b);
+    } else {
+      // 週表示：メモがある日に印だけ出す
+      if (state.dayNotes.has(d)) {
+        const dot = el('span', 'dot');
+        dot.title = 'メモあり';
+        h.append(dot);
+      }
       h.style.cursor = 'pointer';
       h.title = 'この日を表示';
       h.onclick = () => {
@@ -205,9 +228,16 @@ function entryEl(e) {
   const t = el('span', 't'); t.textContent = e.title;
   const tm = el('span', 'time'); tm.textContent = `${slotLabel(e.start_slot)}–${slotLabel(e.end_slot)}`;
   div.append(c, t, tm);
+  // ふりかえりがあれば右上に気分（文章だけなら吹き出し）
+  if (e.mood || e.note) {
+    const m = el('span', 'mood');
+    m.textContent = moodEmoji(e.mood) || '💬';
+    div.append(m);
+  }
   if (hasMouse) div.append(el('div', 'grip')); // 下端ドラッグで長さ変更
   div.dataset.id = e.id;
-  div.title = `${slotLabel(e.start_slot)}–${slotLabel(e.end_slot)} ${cat?.name || '未分類'} ${e.title}`;
+  div.title = `${slotLabel(e.start_slot)}–${slotLabel(e.end_slot)} ${cat?.name || '未分類'} ${e.title}`
+    + (e.note ? `\n${moodEmoji(e.mood)} ${e.note}` : '');
   return div;
 }
 
@@ -655,6 +685,23 @@ function openEntry(e, onClose, inboxItem) {
   $('#entry-to-inbox').hidden = !e.id;
   updateCount();
 
+  // ふりかえり欄は登録済みの予定だけ（新規入力は軽いままにする）
+  $('#reflect-box').hidden = !e.id;
+  entryForm.elements.note.value = e.note || '';
+  let mood = e.mood ?? null;
+  const moods = $('#moods');
+  moods.replaceChildren(...MOODS.map(([v, emoji]) => {
+    const b = el('button');
+    b.type = 'button';
+    b.textContent = emoji;
+    b.onclick = () => { mood = mood === v ? null : v; markMood(); }; // もう一度押すと外れる
+    b._v = v;
+    return b;
+  }));
+  const markMood = () => $$('button', moods).forEach(b => b.classList.toggle('on', b._v === mood));
+  markMood();
+  entryForm.getMood = () => mood;
+
   // 既存の予定・inbox でカテゴリ指定済みならそれを、新規なら前回使ったカテゴリを選んでおく
   const active = state.categories.filter(c => !c.archived || c.id === e.category_id);
   const initial = e.id || e.category_id ? e.category_id
@@ -688,6 +735,10 @@ entryForm.addEventListener('submit', async ev => {
     category_id: entryForm.getChosen(),
     title: entryForm.elements.title.value.trim(),
   };
+  if (editing.id) {
+    row.mood = entryForm.getMood();
+    row.note = entryForm.elements.note.value.trim() || null;
+  }
   const msg = $('#entry-msg');
   if (!row.day) { msg.textContent = '日付を入れてください'; return; }
   if (row.end_slot <= row.start_slot) { msg.textContent = '終了は開始より後にしてください'; return; }
@@ -993,6 +1044,129 @@ setForm.addEventListener('submit', ev => {
   refresh();
 });
 
+// ---------- 日のメモ ----------
+const noteDlg = $('#note-dlg');
+const noteForm = $('#note-form');
+let noteDay = null;
+
+function openDayNote(day) {
+  noteDay = day;
+  $('#note-title').textContent = `${dayLabel(day)} のメモ`;
+  noteForm.body.value = state.dayNotes.get(day) || '';
+  $('#note-msg').textContent = '';
+  updateNoteCount();
+  openDialog(noteDlg);
+}
+
+function updateNoteCount() {
+  $('#note-count').textContent = `${noteForm.body.value.length}/1000`;
+}
+noteForm.body.addEventListener('input', updateNoteCount);
+
+noteForm.addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const body = noteForm.body.value.trim();
+  try {
+    await store.saveDayNote(noteDay, body);
+    if (body) state.dayNotes.set(noteDay, body); else state.dayNotes.delete(noteDay);
+    noteDlg.close();
+    render();
+  } catch (e) {
+    $('#note-msg').textContent = e.message;
+  }
+});
+
+// ---------- 振り返り ----------
+const reflectDlg = $('#reflect-dlg');
+const reflectForm = $('#reflect-form');
+let reflectData = null; // { from, to, entries, notes }
+
+function openReflect() {
+  const today = todayStr();
+  reflectForm.from.value = addDays(today, -13); // 既定は直近2週間
+  reflectForm.to.value = today;
+  reflectForm.q.value = '';
+  openDialog(reflectDlg);
+  loadReflect();
+}
+
+async function loadReflect() {
+  const from = reflectForm.from.value, to = reflectForm.to.value;
+  const list = $('#reflect-list');
+  if (!from || !to || to < from) { list.textContent = '期間を指定してください'; return; }
+  list.textContent = '読み込み中…';
+  try {
+    const [entries, notes] = await Promise.all([store.listEntries(from, to), store.listDayNotes(from, to)]);
+    reflectData = { entries: entries.filter(e => e.mood || e.note), notes };
+    renderReflect();
+  } catch (e) {
+    list.textContent = '読み込みに失敗しました：' + e.message;
+  }
+}
+
+// キーワードを <mark> で強調しながら文字を入れる
+function highlight(node, text, q) {
+  if (!q) { node.textContent = text; return; }
+  const lower = text.toLowerCase(), ql = q.toLowerCase();
+  let i = 0;
+  for (let j; (j = lower.indexOf(ql, i)) !== -1; i = j + q.length) {
+    node.append(text.slice(i, j));
+    const m = el('mark');
+    m.textContent = text.slice(j, j + q.length);
+    node.append(m);
+  }
+  node.append(text.slice(i));
+}
+
+function renderReflect() {
+  const list = $('#reflect-list');
+  if (!reflectData) return;
+  const q = reflectForm.q.value.trim();
+  const hit = s => !q || (s || '').toLowerCase().includes(q.toLowerCase());
+  const byDay = new Map();
+  const dayOf = d => byDay.get(d) || byDay.set(d, { note: null, items: [] }).get(d);
+  for (const n of reflectData.notes) if (hit(n.body)) dayOf(n.day).note = n.body;
+  for (const e of reflectData.entries) {
+    const cat = catById(e.category_id);
+    if (hit(e.note) || hit(e.title) || hit(cat?.name)) dayOf(e.day).items.push(e);
+  }
+  const days = [...byDay.keys()].sort().reverse(); // 新しい日から
+  if (!days.length) {
+    list.textContent = q ? '見つかりませんでした' : 'この期間にはメモもひとことも書かれていません';
+    return;
+  }
+  list.replaceChildren(...days.map(d => {
+    const { note, items } = byDay.get(d);
+    const sec = el('section', 'reflect-day');
+    const h = el('h3');
+    h.textContent = dayLabel(d);
+    sec.append(h);
+    if (note) {
+      const p = el('div', 'memo-body');
+      highlight(p, note, q);
+      sec.append(p);
+    }
+    for (const e of items.sort((a, b) => a.start_slot - b.start_slot)) {
+      const cat = catById(e.category_id);
+      const row = el('div', 'reflect-item');
+      if (cat) row.style.setProperty('--c', cat.color);
+      const m = el('span', 'm'); m.textContent = moodEmoji(e.mood) || '💬';
+      const hd = el('span', 'h');
+      highlight(hd, `${slotLabel(e.start_slot)}–${slotLabel(e.end_slot)}  ${cat?.name || '未分類'}  ${e.title}`, q);
+      const n = el('span', 'n');
+      highlight(n, e.note || '', q);
+      row.append(m, hd, n);
+      sec.append(row);
+    }
+    return sec;
+  }));
+}
+
+reflectForm.from.addEventListener('change', loadReflect);
+reflectForm.to.addEventListener('change', loadReflect);
+reflectForm.q.addEventListener('input', renderReflect);
+reflectForm.addEventListener('submit', ev => ev.preventDefault());
+
 // ---------- CSV ----------
 const csvDlg = $('#csv-dlg');
 const csvForm = $('#csv-form');
@@ -1010,25 +1184,35 @@ csvForm.addEventListener('submit', async ev => {
   const from = csvForm.from.value, to = csvForm.to.value;
   if (to < from) { $('#csv-msg').textContent = '期間の指定が逆です'; return; }
   try {
-    const rows = await store.listEntries(from, to);
     const q = v => /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-    const lines = [['日付', '曜日', '開始', '終了', '時間(分)', 'カテゴリ', '内容']];
-    for (const r of rows) {
-      lines.push([
-        r.day, WD[parseDay(r.day).getDay()], slotLabel(r.start_slot), slotLabel(r.end_slot),
-        String((r.end_slot - r.start_slot) * 15), catById(r.category_id)?.name || '未分類', r.title,
-      ]);
+    const kind = csvForm.kind.value;
+    let lines, count;
+    if (kind === 'notes') {
+      const notes = await store.listDayNotes(from, to);
+      lines = [['日付', '曜日', 'メモ'], ...notes.map(n => [n.day, WD[parseDay(n.day).getDay()], n.body])];
+      count = notes.length;
+    } else {
+      const rows = await store.listEntries(from, to);
+      lines = [['日付', '曜日', '開始', '終了', '時間(分)', 'カテゴリ', '内容', '気分', 'ひとこと']];
+      for (const r of rows) {
+        lines.push([
+          r.day, WD[parseDay(r.day).getDay()], slotLabel(r.start_slot), slotLabel(r.end_slot),
+          String((r.end_slot - r.start_slot) * 15), catById(r.category_id)?.name || '未分類', r.title,
+          moodEmoji(r.mood), r.note || '',
+        ]);
+      }
+      count = rows.length;
     }
     const csv = '﻿' + lines.map(l => l.map(q).join(',')).join('\r\n') + '\r\n'; // BOM付きでExcelの文字化けを防ぐ
     const a = el('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = `timebox_${from}_${to}.csv`;
+    a.download = `timebox_${kind === 'notes' ? 'memo_' : ''}${from}_${to}.csv`;
     document.body.append(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     csvDlg.close();
-    toast(`${rows.length}件を出力しました`);
+    toast(`${count}件を出力しました`);
   } catch (e) {
     $('#csv-msg').textContent = e.message;
   }
@@ -1105,6 +1289,7 @@ function bindStatic() {
   menu.addEventListener('click', async e => {
     const act = e.target.dataset.act;
     if (act === 'csv') openCsv();
+    if (act === 'reflect') openReflect();
     if (act === 'categories') { renderCategoryList(); openDialog(catDlg); }
     if (act === 'settings') openSettings();
     if (act === 'keys') openDialog($('#keys-dlg'));

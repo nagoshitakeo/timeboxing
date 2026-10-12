@@ -34,6 +34,19 @@ create table if not exists public.entries (
 
 create index if not exists entries_user_day on public.entries (user_id, day);
 
+-- 予定の「ひとこと」：やってみてどうだったか（気分 1〜5 と短い文章。どちらも任意）
+alter table public.entries add column if not exists mood smallint check (mood between 1 and 5);
+alter table public.entries add column if not exists note text check (char_length(note) <= 100);
+
+-- 日のメモ：1日1件の自由なメモ
+create table if not exists public.day_notes (
+  user_id     uuid not null default auth.uid() references auth.users on delete cascade,
+  day         date not null,
+  body        text not null check (char_length(body) between 1 and 1000),
+  updated_at  timestamptz not null default now(),
+  primary key (user_id, day)
+);
+
 -- inbox：まだ時間を決めていないメモ（時間割に置いたら消える）
 create table if not exists public.inbox (
   id          uuid primary key default gen_random_uuid(),
@@ -45,13 +58,14 @@ create table if not exists public.inbox (
 
 -- Data API からの利用権限（ログイン済みユーザーのみ。未ログインの anon には付けない）
 -- 「Automatically expose new tables」をオフにしたプロジェクトでも動くよう明示的に付与する
-grant select, insert, update, delete on public.categories, public.entries, public.inbox to authenticated;
-revoke all on public.categories, public.entries, public.inbox from anon;
+grant select, insert, update, delete on public.categories, public.entries, public.inbox, public.day_notes to authenticated;
+revoke all on public.categories, public.entries, public.inbox, public.day_notes from anon;
 
 -- 行レベルセキュリティ：自分のデータだけ読み書きできる
 alter table public.categories enable row level security;
 alter table public.entries    enable row level security;
 alter table public.inbox      enable row level security;
+alter table public.day_notes  enable row level security;
 
 drop policy if exists "own categories" on public.categories;
 create policy "own categories" on public.categories
@@ -63,4 +77,8 @@ create policy "own entries" on public.entries
 
 drop policy if exists "own inbox" on public.inbox;
 create policy "own inbox" on public.inbox
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists "own day notes" on public.day_notes;
+create policy "own day notes" on public.day_notes
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
