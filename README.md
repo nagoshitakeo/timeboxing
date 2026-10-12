@@ -98,6 +98,7 @@ http://localhost:8123 を開きます。
 | store.js   | データの読み書き（Supabase／デモ用ローカル）          |
 | config.js  | Supabase の接続情報                                   |
 | schema.sql | テーブル定義・重なり禁止制約・RLS                     |
+| sw.js      | 開くたびに最新版を確認する（GitHub Pages の10分キャッシュ対策） |
 
 ## データ
 

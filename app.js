@@ -42,6 +42,7 @@ const maxSlot = () => settings.endHour * 4;
 
 // ---------- 起動 ----------
 init();
+navigator.serviceWorker?.register('sw.js').catch(() => { /* 使えない環境では普通に動く */ });
 
 async function init() {
   try {
