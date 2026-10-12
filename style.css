@@ -308,7 +308,7 @@ kbd {
 @media (max-width: 480px) {
   /* 時計・電池の表示のすぐ下で窮屈にならないよう上に余白をとり、ボタンは縦に大きく */
   .bar {
-    padding: calc(10px + env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 10px max(8px, env(safe-area-inset-left));
+    padding: calc(28px + env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 12px max(8px, env(safe-area-inset-left));
     gap: 4px;
   }
   .nav, .tools { gap: 4px; }
