@@ -26,6 +26,8 @@ const state = {
   view: ls.get('tb.view', matchMedia('(max-width: 700px)').matches ? 'day' : 'week'),
   categories: [],
   entries: new Map(), // day -> entry[]
+  inbox: [],
+  placing: null, // 「時間割に置く」中の inbox 項目
   lastCat: ls.get('tb.lastCat', null),
 };
 
@@ -43,7 +45,9 @@ init();
 
 async function init() {
   try {
-    store = await createStore(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // URL に ?demo を付けると、本番の設定があっても端末内保存のデモモードで動く（動作確認用）
+    const demo = new URLSearchParams(location.search).has('demo');
+    store = await createStore(demo ? '' : SUPABASE_URL, SUPABASE_ANON_KEY);
   } catch (e) {
     document.body.textContent = '読み込みに失敗しました：' + e.message;
     return;
@@ -73,6 +77,8 @@ async function startApp() {
     await loadCategories();
   }
   initCursor();
+  setInboxOpen(matchMedia('(min-width: 701px)').matches && ls.get('tb.inboxOpen', true));
+  loadInbox();
   await refresh();
   scrollToNow();
 }
@@ -123,9 +129,12 @@ const dayEntries = day => state.entries.get(day) || [];
 function render() {
   const days = visibleDays();
   const today = todayStr();
+  const md = s => { const d = parseDay(s); return `${d.getMonth() + 1}/${d.getDate()}`; };
   $('#range-label').textContent = days.length === 1
     ? dayLabel(days[0])
-    : `${dayLabel(days[0])} – ${dayLabel(days[6])}`;
+    : matchMedia('(max-width: 480px)').matches
+      ? `${md(days[0])}–${md(days[6])}`
+      : `${dayLabel(days[0])} – ${dayLabel(days[6])}`;
   $$('.seg button').forEach(b => b.classList.toggle('on', b.dataset.view === state.view));
 
   const board = $('#board');
@@ -309,7 +318,11 @@ function stepDay(d) {
 function pressCursor() {
   if (sel) { endSel(true); return; }
   const e = entryAt(cursor.day, cursor.slot);
-  if (e) openEntry(e);
+  if (state.placing) {
+    // 置く場所選びの最中は、1回で30分枠として入力画面を開く
+    if (e) toast('空いている枠を選んでください');
+    else if (beginSelAt(cursor.day, cursor.slot)) endSel(true);
+  } else if (e) openEntry(e);
   else beginSelAt(cursor.day, cursor.slot);
 }
 
@@ -360,11 +373,19 @@ function updateSelTo(slot) {
 
 function endSel(commit) {
   if (!sel) return;
-  const { start, end } = selRange();
-  const { day, box } = sel;
+  let { start, end } = selRange();
+  const { day, box, hi } = sel;
   sel = null;
-  if (commit) openEntry({ day, start_slot: start, end_slot: end, category_id: null, title: '' }, () => box.remove());
-  else box.remove();
+  if (!commit) { box.remove(); return; }
+  const item = state.placing;
+  if (item) {
+    // inbox から置くときは、1枠だけの指定なら30分にする（次の予定の手前まで）
+    if (end - start === 1) end = Math.min(start + 2, hi);
+    openEntry({ day, start_slot: start, end_slot: end, category_id: item.category_id, title: item.title },
+      () => { box.remove(); stopPlacing(); }, item);
+  } else {
+    openEntry({ day, start_slot: start, end_slot: end, category_id: null, title: '' }, () => box.remove());
+  }
 }
 
 // ---------- 予定の移動・長さ変更（ドラッグ） ----------
@@ -542,6 +563,61 @@ function bindBoard() {
     endSel(false);
     endDrag(false);
   }
+
+  // inbox の項目をドロップ（PC）：落とした位置から30分（次の予定の手前まで）
+  let preview = null;
+  const dropRange = ev => {
+    const col = ev.target.closest?.('.col') || colAtX(ev.clientX);
+    if (!col) return null;
+    const slot = slotAt(col, ev.clientY);
+    const free = freeRange(col.dataset.day, slot);
+    return free && { col, day: col.dataset.day, start: slot, end: Math.min(slot + 2, free.hi) };
+  };
+  const clearPreview = () => { preview?.remove(); preview = null; };
+  board.addEventListener('dragover', ev => {
+    if (!inboxDragging) return;
+    const r = dropRange(ev);
+    if (!r) { clearPreview(); return; } // 予定の上には落とせない
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'copy';
+    if (!preview) preview = el('div', 'sel');
+    if (preview.parentNode !== r.col) r.col.append(preview);
+    preview.style.top = (r.start - minSlot()) * rowPx + 'px';
+    preview.style.height = (r.end - r.start) * rowPx + 'px';
+    preview.textContent = `${slotLabel(r.start)}–${slotLabel(r.end)}`;
+    autoScroll(ev.clientY);
+  });
+  board.addEventListener('dragleave', ev => { if (!board.contains(ev.relatedTarget)) clearPreview(); });
+  board.addEventListener('drop', ev => {
+    const item = inboxDragging;
+    const r = item && dropRange(ev);
+    clearPreview();
+    if (!r) return;
+    ev.preventDefault();
+    setCursor(r.day, r.start);
+    openEntry({ day: r.day, start_slot: r.start, end_slot: r.end, category_id: item.category_id, title: item.title }, null, item);
+  });
+  document.addEventListener('dragend', clearPreview);
+}
+
+// ---------- カテゴリの選択ボタン ----------
+// 選択中のIDを返す関数を返す。allowNone なら「なし」も選べる
+function renderChips(container, categoryId, initial, allowNone) {
+  const active = state.categories.filter(c => !c.archived || c.id === categoryId);
+  let chosen = initial;
+  const items = allowNone ? [{ id: null, name: 'なし', color: '#8b949e' }, ...active] : active;
+  container.replaceChildren(...items.map(c => {
+    const b = el('button');
+    b.type = 'button';
+    b.textContent = c.name;
+    b.style.setProperty('--c', c.color);
+    b.onclick = () => { chosen = c.id; mark(); };
+    b._id = c.id;
+    return b;
+  }));
+  const mark = () => $$('button', container).forEach(b => b.classList.toggle('on', b._id === chosen));
+  mark();
+  return { get: () => chosen, active };
 }
 
 // ---------- 予定ダイアログ ----------
@@ -549,6 +625,7 @@ const entryDlg = $('#entry-dlg');
 const entryForm = $('#entry-form');
 let editing = null;
 let onEntryClose = null;
+let fromInbox = null; // inbox から置いた場合の元の項目
 
 function fillSlotOptions(select, from, to) {
   select.replaceChildren(...Array.from({ length: to - from + 1 }, (_, i) => {
@@ -561,32 +638,24 @@ function fillSlotOptions(select, from, to) {
 fillSlotOptions(entryForm.start, 0, 95);
 fillSlotOptions(entryForm.end, 1, 96);
 
-function openEntry(e, onClose) {
+function openEntry(e, onClose, inboxItem) {
   editing = e;
   onEntryClose = onClose || null;
+  fromInbox = inboxItem || null;
   entryForm.day.value = e.day;
   entryForm.start.value = e.start_slot;
   entryForm.end.value = e.end_slot;
   entryForm.elements.title.value = e.title || '';
   $('#entry-msg').textContent = '';
   $('#entry-del').hidden = !e.id;
+  $('#entry-to-inbox').hidden = !e.id;
   updateCount();
 
+  // 既存の予定・inbox でカテゴリ指定済みならそれを、新規なら前回使ったカテゴリを選んでおく
   const active = state.categories.filter(c => !c.archived || c.id === e.category_id);
-  let chosen = e.id ? e.category_id : (active.some(c => c.id === state.lastCat) ? state.lastCat : active[0]?.id ?? null);
-  const chips = $('#cat-chips');
-  chips.replaceChildren(...active.map(c => {
-    const b = el('button');
-    b.type = 'button';
-    b.textContent = c.name;
-    b.style.setProperty('--c', c.color);
-    b.dataset.id = c.id;
-    b.onclick = () => { chosen = c.id; mark(); };
-    return b;
-  }));
-  const mark = () => $$('button', chips).forEach(b => b.classList.toggle('on', b.dataset.id === chosen));
-  mark();
-  entryForm.getChosen = () => chosen;
+  const initial = e.id || e.category_id ? e.category_id
+    : active.some(c => c.id === state.lastCat) ? state.lastCat : active[0]?.id ?? null;
+  entryForm.getChosen = renderChips($('#cat-chips'), e.category_id, initial, false).get;
 
   openDialog(entryDlg);
   // PCでは内容欄にすぐ入力できるように。スマホではキーボードが出て邪魔なので任意
@@ -602,6 +671,7 @@ entryDlg.addEventListener('close', () => {
   onEntryClose?.();
   onEntryClose = null;
   editing = null;
+  fromInbox = null;
 });
 
 entryForm.addEventListener('submit', async ev => {
@@ -632,10 +702,35 @@ entryForm.addEventListener('submit', async ev => {
     dayEntries(saved.day).push(saved);
     state.lastCat = row.category_id;
     ls.set('tb.lastCat', state.lastCat);
+    const placed = fromInbox;
     entryDlg.close();
     render();
+    if (placed) {
+      // 予定として保存できたら inbox から消す（失敗しても予定は残るので、項目が二重になるだけ）
+      await store.deleteInbox(placed.id).catch(err => toast(err.message));
+      state.inbox = state.inbox.filter(i => i.id !== placed.id);
+      renderInbox();
+    }
   } catch (e) {
     msg.textContent = e.message;
+  }
+});
+
+$('#entry-to-inbox').addEventListener('click', async () => {
+  const e = editing;
+  const title = e.title || catById(e.category_id)?.name || '（無題）';
+  try {
+    // 先に inbox へ入れてから予定を消す（途中で失敗しても消えてしまわない順番）
+    const item = await store.saveInbox({ title, category_id: e.category_id });
+    state.inbox.unshift(item);
+    await store.deleteEntry(e.id);
+    removeLocal(e);
+    entryDlg.close();
+    render();
+    renderInbox();
+    toast('inboxへ戻しました');
+  } catch (err) {
+    $('#entry-msg').textContent = err.message;
   }
 });
 
@@ -655,6 +750,145 @@ $('#entry-del').addEventListener('click', async () => {
 function removeLocal(e) {
   const list = state.entries.get(e.day);
   if (list) state.entries.set(e.day, list.filter(x => x.id !== e.id));
+}
+
+// ---------- inbox ----------
+let inboxDragging = null; // PCでドラッグ中の inbox 項目
+
+async function loadInbox() {
+  try {
+    state.inbox = await store.listInbox();
+  } catch (e) {
+    toast('inboxの読み込みに失敗しました：' + e.message);
+  }
+  renderInbox();
+}
+
+function renderInbox() {
+  const n = state.inbox.length;
+  const badge = $('#inbox-count');
+  badge.hidden = n === 0;
+  badge.textContent = n;
+  $('#inbox-empty').hidden = n > 0;
+  $('#inbox-list').replaceChildren(...state.inbox.map(item => {
+    const li = el('li');
+    const cat = catById(item.category_id);
+    if (cat) li.style.setProperty('--c', cat.color);
+    li.textContent = item.title;
+    li.title = (cat ? `${cat.name}：` : '') + item.title;
+    if (state.placing?.id === item.id) li.classList.add('placing');
+    li.onclick = () => openInboxItem(item);
+    if (hasMouse) {
+      li.draggable = true;
+      li.addEventListener('dragstart', ev => {
+        inboxDragging = item;
+        ev.dataTransfer.effectAllowed = 'copy';
+        ev.dataTransfer.setData('text/plain', item.title);
+      });
+      li.addEventListener('dragend', () => { inboxDragging = null; });
+    }
+    return li;
+  }));
+}
+
+const isWide = () => matchMedia('(min-width: 701px)').matches;
+
+function setInboxOpen(open) {
+  $('#app').classList.toggle('inbox-open', open);
+  if (isWide()) ls.set('tb.inboxOpen', open); // PCでは開閉を覚えておく
+}
+
+$('#inbox-add').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const input = ev.target.elements.title;
+  const title = input.value.trim();
+  if (!title) return;
+  input.value = ''; // 続けて書けるように、保存を待たずに空にする
+  try {
+    state.inbox.unshift(await store.saveInbox({ title }));
+    renderInbox();
+  } catch (e) {
+    input.value = title;
+    toast(e.message);
+  }
+});
+$('#inbox-add').elements.title.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape') ev.target.blur();
+});
+
+// inbox の項目の編集
+const inboxDlg = $('#inbox-dlg');
+const inboxForm = $('#inbox-form');
+let inboxEditing = null;
+
+function openInboxItem(item) {
+  inboxEditing = item;
+  inboxForm.elements.title.value = item.title;
+  $('#inbox-msg').textContent = '';
+  inboxForm.getChosen = renderChips($('#inbox-chips'), item.category_id, item.category_id, true).get;
+  openDialog(inboxDlg);
+}
+
+// 編集内容を保存して、保存後の項目を返す（変更がなければそのまま）
+async function saveInboxEdit() {
+  const item = inboxEditing;
+  const title = inboxForm.elements.title.value.trim();
+  const category_id = inboxForm.getChosen();
+  if (!title) throw new Error('内容を入れてください');
+  if (title === item.title && category_id === item.category_id) return item;
+  const saved = await store.saveInbox({ id: item.id, title, category_id });
+  state.inbox = state.inbox.map(i => (i.id === saved.id ? saved : i));
+  renderInbox();
+  return saved;
+}
+
+inboxForm.addEventListener('submit', async ev => {
+  ev.preventDefault();
+  try {
+    await saveInboxEdit();
+    inboxDlg.close();
+  } catch (e) {
+    $('#inbox-msg').textContent = e.message;
+  }
+});
+
+$('#inbox-del').addEventListener('click', async () => {
+  try {
+    await store.deleteInbox(inboxEditing.id);
+    state.inbox = state.inbox.filter(i => i.id !== inboxEditing.id);
+    inboxDlg.close();
+    renderInbox();
+  } catch (e) {
+    $('#inbox-msg').textContent = e.message;
+  }
+});
+
+$('#inbox-place').addEventListener('click', async () => {
+  try {
+    const item = await saveInboxEdit();
+    inboxDlg.close();
+    startPlacing(item);
+  } catch (e) {
+    $('#inbox-msg').textContent = e.message;
+  }
+});
+
+// 「時間割に置く」：次に選んだ空き枠へ置く
+function startPlacing(item) {
+  state.placing = item;
+  if (!isWide()) setInboxOpen(false); // スマホではシートを閉じて時間割を見せる
+  $('#place-text').textContent = `「${item.title}」を置く枠を${hasMouse ? 'クリック（または Space）' : 'タップ'}`;
+  $('#place-bar').hidden = false;
+  $('#board').classList.add('placing');
+  renderInbox();
+}
+
+function stopPlacing() {
+  if (!state.placing) return;
+  state.placing = null;
+  $('#place-bar').hidden = true;
+  $('#board').classList.remove('placing');
+  renderInbox();
 }
 
 // ---------- カテゴリ管理 ----------
@@ -686,6 +920,7 @@ function renderCategoryList() {
       await guard(async () => {
         await store.deleteCategory(c.id);
         state.entries.forEach(list => list.forEach(e => { if (e.category_id === c.id) e.category_id = null; }));
+        state.inbox.forEach(i => { if (i.category_id === c.id) i.category_id = null; });
         await loadCategories();
       });
     };
@@ -715,6 +950,7 @@ async function guard(fn) {
   try { await fn(); } catch (e) { toast(e.message); await loadCategories(); }
   renderCategoryList();
   render();
+  renderInbox();
 }
 
 $('#cat-add').addEventListener('submit', async ev => {
@@ -798,14 +1034,20 @@ csvForm.addEventListener('submit', async ev => {
 // キー操作（PC）
 //   ↑↓ / k j：カーソル上下      ← → / h l：前後の日へ（週の端を越えると週も移動）
 //   Space / Enter：予定があれば開く／なければ選択開始→もう一度で登録
-//   Esc：選択を取り消し   T：今日   D / W：日表示・週表示
+//   Esc：選択・配置を取り消し   T：今日   D / W：日表示・週表示   I：inbox に書く
 function onKey(e) {
   if ($('#app').hidden || $('dialog[open]') || e.target.matches?.('input, select, textarea')
     || e.ctrlKey || e.metaKey || e.altKey) return;
   // ヘッダーのボタンにフォーカスが残っているとスペースで押されてしまうので外す
   if (document.activeElement instanceof HTMLButtonElement) document.activeElement.blur();
   const k = e.key;
-  if (k === 'Escape') { endSel(false); endDrag(false); $('#menu').hidden = true; return; }
+  if (k === 'Escape') { endSel(false); endDrag(false); stopPlacing(); $('#menu').hidden = true; return; }
+  if (k === 'i') {
+    e.preventDefault(); // 入力欄に「i」が入らないように
+    setInboxOpen(true);
+    $('#inbox-add').elements.title.focus();
+    return;
+  }
   if (k === 't') return goToday();
   if (k === 'd') return setView('day');
   if (k === 'w') return setView('week');
@@ -873,8 +1115,15 @@ function bindStatic() {
 
   // 別の端末で入れた予定を、画面に戻ってきたときに反映する
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !$('#app').hidden && !$('dialog[open]') && !sel && !drag) refresh();
+    if (document.visibilityState === 'visible' && !$('#app').hidden && !$('dialog[open]') && !sel && !drag) {
+      refresh();
+      loadInbox();
+    }
   });
+
+  $('#inbox-btn').onclick = () => setInboxOpen(!$('#app').classList.contains('inbox-open'));
+  $('#inbox-close').onclick = () => setInboxOpen(false);
+  $('#place-cancel').onclick = stopPlacing;
 
   bindBoard();
 

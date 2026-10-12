@@ -2,6 +2,7 @@
 
 const ENTRY_FIELDS = ['day', 'start_slot', 'end_slot', 'category_id', 'title'];
 const CATEGORY_FIELDS = ['name', 'color', 'sort_order', 'archived'];
+const INBOX_FIELDS = ['title', 'category_id'];
 
 const pick = (obj, keys) => Object.fromEntries(keys.filter(k => k in obj).map(k => [k, obj[k]]));
 
@@ -70,6 +71,20 @@ function supabaseStore(sb) {
     async deleteEntry(id) {
       check(await sb.from('entries').delete().eq('id', id));
     },
+
+    async listInbox() {
+      return check(await sb.from('inbox').select('*').order('created_at', { ascending: false }));
+    },
+    async saveInbox(item) {
+      const row = pick(item, INBOX_FIELDS);
+      const q = item.id
+        ? sb.from('inbox').update(row).eq('id', item.id)
+        : sb.from('inbox').insert(row);
+      return check(await q.select().single());
+    },
+    async deleteInbox(id) {
+      check(await sb.from('inbox').delete().eq('id', id));
+    },
   };
 }
 
@@ -84,6 +99,7 @@ function localStore() {
   };
   // localStorage が使えない環境でもセッション中は動くようメモリに保持
   let db = read();
+  db.inbox ??= [];
   const commit = () => write(db);
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
     : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -115,6 +131,7 @@ function localStore() {
     async deleteCategory(id) {
       db.categories = db.categories.filter(c => c.id !== id);
       db.entries.forEach(e => { if (e.category_id === id) e.category_id = null; });
+      db.inbox.forEach(i => { if (i.category_id === id) i.category_id = null; });
       commit();
     },
 
@@ -141,6 +158,27 @@ function localStore() {
     },
     async deleteEntry(id) {
       db.entries = db.entries.filter(e => e.id !== id);
+      commit();
+    },
+
+    async listInbox() {
+      return [...db.inbox].sort((a, b) => b.created_at.localeCompare(a.created_at)).map(i => ({ ...i }));
+    },
+    async saveInbox(item) {
+      const row = pick(item, INBOX_FIELDS);
+      let saved;
+      if (item.id) {
+        saved = db.inbox.find(x => x.id === item.id);
+        Object.assign(saved, row);
+      } else {
+        saved = { id: uuid(), category_id: null, created_at: new Date().toISOString(), ...row };
+        db.inbox.push(saved);
+      }
+      commit();
+      return { ...saved };
+    },
+    async deleteInbox(id) {
+      db.inbox = db.inbox.filter(i => i.id !== id);
       commit();
     },
   };

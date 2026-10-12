@@ -1,5 +1,6 @@
 -- タイムボクシング用スキーマ
 -- Supabase の SQL Editor にこのファイルの中身を貼り付けて実行してください。
+-- 何度実行しても安全です（既存のテーブル・データはそのまま。機能追加時は再実行してください）。
 
 create extension if not exists btree_gist;
 
@@ -33,14 +34,24 @@ create table if not exists public.entries (
 
 create index if not exists entries_user_day on public.entries (user_id, day);
 
+-- inbox：まだ時間を決めていないメモ（時間割に置いたら消える）
+create table if not exists public.inbox (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users on delete cascade,
+  title       text not null check (char_length(title) between 1 and 20),
+  category_id uuid references public.categories on delete set null,
+  created_at  timestamptz not null default now()
+);
+
 -- Data API からの利用権限（ログイン済みユーザーのみ。未ログインの anon には付けない）
 -- 「Automatically expose new tables」をオフにしたプロジェクトでも動くよう明示的に付与する
-grant select, insert, update, delete on public.categories, public.entries to authenticated;
-revoke all on public.categories, public.entries from anon;
+grant select, insert, update, delete on public.categories, public.entries, public.inbox to authenticated;
+revoke all on public.categories, public.entries, public.inbox from anon;
 
 -- 行レベルセキュリティ：自分のデータだけ読み書きできる
 alter table public.categories enable row level security;
 alter table public.entries    enable row level security;
+alter table public.inbox      enable row level security;
 
 drop policy if exists "own categories" on public.categories;
 create policy "own categories" on public.categories
@@ -48,4 +59,8 @@ create policy "own categories" on public.categories
 
 drop policy if exists "own entries" on public.entries;
 create policy "own entries" on public.entries
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists "own inbox" on public.inbox;
+create policy "own inbox" on public.inbox
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
