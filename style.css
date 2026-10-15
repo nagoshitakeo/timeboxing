@@ -313,6 +313,19 @@ input[type=search] { font-size: 16px; flex: 1 1 140px; }
   width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
 }
 
+dialog.tall .dlg-body.diary { grid-template-rows: auto 1fr auto auto; }
+.diary-body { overflow: auto; min-height: 0; display: grid; gap: 16px; align-content: start; }
+.diary-body section { display: grid; gap: 8px; }
+.diary-label { font-size: 14px; }
+.diary-label b { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; margin-right: 4px; }
+.diary-label .hint { margin-left: 4px; }
+.diary-actions { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.diary-actions li { display: flex; gap: 8px; align-items: baseline; padding-left: 8px; border-left: 3px solid var(--c, var(--line-strong)); }
+.diary-actions .t { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.diary-actions .n { color: var(--muted); }
+.reflect-day .diary-line { font-size: 13px; margin-bottom: 4px; }
+.reflect-day .diary-line b { display: inline-block; width: 18px; color: var(--accent); }
+
 dialog.tall { height: min(720px, calc(100dvh - 24px)); }
 dialog.tall .dlg-body { height: 100%; grid-template-rows: auto auto 1fr auto; }
 .reflect-list { overflow: auto; min-height: 0; display: grid; gap: 14px; align-content: start; }

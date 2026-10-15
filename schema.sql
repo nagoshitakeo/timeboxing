@@ -38,14 +38,24 @@ create index if not exists entries_user_day on public.entries (user_id, day);
 alter table public.entries add column if not exists mood smallint check (mood between 1 and 5);
 alter table public.entries add column if not exists note text check (char_length(note) <= 100);
 
--- 日のメモ：1日1件の自由なメモ
+-- 日記（BEAT）：1日1件。A（行動）はその日の予定なので持たない。どの欄も任意
+--   physical_level / physical_note : B 体の感覚（1〜5）とメモ
+--   emotion_level  / emotion_note  : E 感情（1〜5）とメモ
+--   body                           : T 思考（自由なメモ。旧「日のメモ」の本文をそのまま使う）
 create table if not exists public.day_notes (
   user_id     uuid not null default auth.uid() references auth.users on delete cascade,
   day         date not null,
-  body        text not null check (char_length(body) between 1 and 1000),
+  body        text,
   updated_at  timestamptz not null default now(),
   primary key (user_id, day)
 );
+alter table public.day_notes alter column body drop not null;
+alter table public.day_notes drop constraint if exists day_notes_body_check;
+alter table public.day_notes add constraint day_notes_body_check check (char_length(body) <= 1000);
+alter table public.day_notes add column if not exists physical_level smallint check (physical_level between 1 and 5);
+alter table public.day_notes add column if not exists physical_note  text check (char_length(physical_note) <= 200);
+alter table public.day_notes add column if not exists emotion_level  smallint check (emotion_level between 1 and 5);
+alter table public.day_notes add column if not exists emotion_note   text check (char_length(emotion_note) <= 200);
 
 -- inbox：まだ時間を決めていないメモ（時間割に置いたら消える）
 create table if not exists public.inbox (

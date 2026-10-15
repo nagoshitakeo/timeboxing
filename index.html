@@ -175,12 +175,31 @@
   </div>
 </dialog>
 
-<!-- 日のメモ -->
-<dialog id="note-dlg">
-  <form method="dialog" id="note-form" class="dlg-body" tabindex="-1" autofocus>
+<!-- 日記（BEAT） -->
+<dialog id="note-dlg" class="tall">
+  <form method="dialog" id="note-form" class="dlg-body diary" tabindex="-1" autofocus>
     <h2 id="note-title"></h2>
-    <textarea name="body" rows="8" maxlength="1000" placeholder="今日のこと、なんでも"></textarea>
-    <div class="row"><span class="spacer"></span><span class="count" id="note-count">0/1000</span></div>
+    <div class="diary-body">
+      <section>
+        <div class="diary-label"><b>B</b> 体の感覚 <span class="hint">肩こり・眠気・疲れ・空腹など</span></div>
+        <div class="moods" id="physical-levels"></div>
+        <input type="text" name="physical_note" maxlength="200" placeholder="メモ（任意）" autocomplete="off">
+      </section>
+      <section>
+        <div class="diary-label"><b>E</b> 感情 <span class="hint">いまの気分</span></div>
+        <div class="moods" id="emotion-levels"></div>
+        <input type="text" name="emotion_note" maxlength="200" placeholder="メモ（任意）" autocomplete="off">
+      </section>
+      <section>
+        <div class="diary-label"><b>A</b> 行動 <span class="hint">この日の予定から</span></div>
+        <ul id="diary-actions" class="diary-actions"></ul>
+      </section>
+      <section>
+        <div class="diary-label"><b>T</b> 思考 <span class="hint">浮かんだこと・不安・アイデア</span></div>
+        <textarea name="body" rows="6" maxlength="1000" placeholder="なんでも"></textarea>
+        <div class="row"><span class="spacer"></span><span class="count" id="note-count">0/1000</span></div>
+      </section>
+    </div>
     <p class="msg" id="note-msg"></p>
     <div class="actions"><span class="spacer"></span><button type="button" data-close>キャンセル</button><button type="submit" class="primary">保存</button></div>
   </form>
@@ -206,7 +225,7 @@
     <label class="row">期間 <input type="date" name="from" required> 〜 <input type="date" name="to" required></label>
     <div class="row">
       <label class="radio"><input type="radio" name="kind" value="entries" checked> 予定（気分・ひとこと付き）</label>
-      <label class="radio"><input type="radio" name="kind" value="notes"> 日のメモ</label>
+      <label class="radio"><input type="radio" name="kind" value="notes"> 日記</label>
     </div>
     <p class="msg" id="csv-msg"></p>
     <div class="actions"><span class="spacer"></span><button type="button" data-close>キャンセル</button><button type="submit" class="primary">ダウンロード</button></div>

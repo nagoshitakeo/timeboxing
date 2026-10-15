@@ -1,4 +1,4 @@
-import { createStore } from './store.js';
+import { createStore, isEmptyNote } from './store.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -27,7 +27,7 @@ const state = {
   categories: [],
   entries: new Map(), // day -> entry[]
   inbox: [],
-  dayNotes: new Map(), // day -> 日のメモ本文
+  dayNotes: new Map(), // day -> 日記（B・E・T）
   placing: null, // 「時間割に置く」中の inbox 項目
   lastCat: ls.get('tb.lastCat', null),
 };
@@ -35,6 +35,25 @@ const state = {
 // 気分スタンプ（値が大きいほど良い）
 const MOODS = [[5, '😆'], [4, '🙂'], [3, '😐'], [2, '😟'], [1, '😣']];
 const moodEmoji = v => MOODS.find(([m]) => m === v)?.[1] ?? '';
+// 日記の B（体の感覚）のスタンプ
+const PHYSICALS = [[5, '💪'], [4, '🙂'], [3, '😐'], [2, '😪'], [1, '🤒']];
+const physicalEmoji = v => PHYSICALS.find(([m]) => m === v)?.[1] ?? '';
+
+// スタンプの並びを描き、選択中の値を返す関数を返す（もう一度押すと外れる）
+function renderStamps(container, stamps, initial) {
+  let value = initial ?? null;
+  container.replaceChildren(...stamps.map(([v, emoji]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = emoji;
+    b.onclick = () => { value = value === v ? null : v; mark(); };
+    b._v = v;
+    return b;
+  }));
+  const mark = () => [...container.children].forEach(b => b.classList.toggle('on', b._v === value));
+  mark();
+  return () => value;
+}
 
 const DEFAULT_CATEGORIES = [
   ['会議', '#4f7cff'], ['作業', '#2da44e'], ['連絡・調整', '#e3a008'], ['移動', '#8b949e'], ['休憩', '#d97bd0'],
@@ -112,7 +131,7 @@ async function refresh() {
     ]);
     days.forEach(d => { state.entries.set(d, []); state.dayNotes.delete(d); });
     rows.forEach(r => state.entries.get(r.day)?.push(r));
-    notes.forEach(n => state.dayNotes.set(n.day, n.body));
+    notes.forEach(n => state.dayNotes.set(n.day, n));
     render();
   } catch (e) {
     toast('読み込みに失敗しました：' + e.message);
@@ -162,18 +181,21 @@ function render() {
       ? `${parseDay(d).getDate()}(${WD[wd]})`
       : dayLabel(d);
     if (days.length === 1) {
-      // 日表示：見出しに「メモ」ボタン（書いてあれば色付き）
-      const b = el('button', 'memo' + (state.dayNotes.has(d) ? ' has' : ''));
+      // 日表示：見出しに「日記」ボタン（書いてあれば色付き）
+      const n = state.dayNotes.get(d);
+      const b = el('button', 'memo' + (n ? ' has' : ''));
       b.type = 'button';
-      b.textContent = state.dayNotes.has(d) ? 'メモ ✓' : 'メモ';
-      b.title = state.dayNotes.get(d) || 'この日のメモを書く';
+      // 書いてあればスタンプを見せる（スタンプなしなら ✓）
+      const stamps = n ? physicalEmoji(n.physical_level) + moodEmoji(n.emotion_level) : '';
+      b.textContent = !n ? '日記' : `日記 ${stamps || '✓'}`;
+      b.title = n ? (n.body || n.emotion_note || n.physical_note || '') : 'この日の日記を書く';
       b.onclick = () => openDayNote(d);
       h.append(b);
     } else {
-      // 週表示：メモがある日に印だけ出す
+      // 週表示：日記がある日に印だけ出す
       if (state.dayNotes.has(d)) {
         const dot = el('span', 'dot');
-        dot.title = 'メモあり';
+        dot.title = '日記あり';
         h.append(dot);
       }
       h.style.cursor = 'pointer';
@@ -688,19 +710,7 @@ function openEntry(e, onClose, inboxItem) {
   // ふりかえり欄は登録済みの予定だけ（新規入力は軽いままにする）
   $('#reflect-box').hidden = !e.id;
   entryForm.elements.note.value = e.note || '';
-  let mood = e.mood ?? null;
-  const moods = $('#moods');
-  moods.replaceChildren(...MOODS.map(([v, emoji]) => {
-    const b = el('button');
-    b.type = 'button';
-    b.textContent = emoji;
-    b.onclick = () => { mood = mood === v ? null : v; markMood(); }; // もう一度押すと外れる
-    b._v = v;
-    return b;
-  }));
-  const markMood = () => $$('button', moods).forEach(b => b.classList.toggle('on', b._v === mood));
-  markMood();
-  entryForm.getMood = () => mood;
+  entryForm.getMood = renderStamps($('#moods'), MOODS, e.mood);
 
   // 既存の予定・inbox でカテゴリ指定済みならそれを、新規なら前回使ったカテゴリを選んでおく
   const active = state.categories.filter(c => !c.archived || c.id === e.category_id);
@@ -1044,17 +1054,38 @@ setForm.addEventListener('submit', ev => {
   refresh();
 });
 
-// ---------- 日のメモ ----------
+// ---------- 日記（BEAT） ----------
 const noteDlg = $('#note-dlg');
 const noteForm = $('#note-form');
 let noteDay = null;
 
 function openDayNote(day) {
   noteDay = day;
-  $('#note-title').textContent = `${dayLabel(day)} のメモ`;
-  noteForm.body.value = state.dayNotes.get(day) || '';
+  const n = state.dayNotes.get(day) || {};
+  $('#note-title').textContent = `${dayLabel(day)} の日記`;
+  noteForm.getPhysical = renderStamps($('#physical-levels'), PHYSICALS, n.physical_level);
+  noteForm.getEmotion = renderStamps($('#emotion-levels'), MOODS, n.emotion_level);
+  noteForm.physical_note.value = n.physical_note || '';
+  noteForm.emotion_note.value = n.emotion_note || '';
+  noteForm.body.value = n.body || '';
   $('#note-msg').textContent = '';
   updateNoteCount();
+
+  // A：この日の予定（気分・ひとこと付き）をそのまま見せる
+  const acts = [...dayEntries(day)].sort((a, b) => a.start_slot - b.start_slot);
+  const ul = $('#diary-actions');
+  ul.replaceChildren(...(acts.length ? acts.map(e => {
+    const cat = catById(e.category_id);
+    const li = el('li');
+    if (cat) li.style.setProperty('--c', cat.color);
+    const t = el('span', 't'); t.textContent = `${slotLabel(e.start_slot)}–${slotLabel(e.end_slot)}`;
+    const body = el('span');
+    body.textContent = `${cat?.name || '未分類'} ${e.title} ${moodEmoji(e.mood)}`;
+    li.append(t, body);
+    if (e.note) { const nn = el('span', 'n'); nn.textContent = e.note; li.append(nn); }
+    return li;
+  }) : [Object.assign(el('li'), { textContent: '予定はありません' })]));
+
   openDialog(noteDlg);
 }
 
@@ -1065,10 +1096,16 @@ noteForm.body.addEventListener('input', updateNoteCount);
 
 noteForm.addEventListener('submit', async ev => {
   ev.preventDefault();
-  const body = noteForm.body.value.trim();
+  const note = {
+    physical_level: noteForm.getPhysical(),
+    physical_note: noteForm.physical_note.value.trim() || null,
+    emotion_level: noteForm.getEmotion(),
+    emotion_note: noteForm.emotion_note.value.trim() || null,
+    body: noteForm.body.value.trim() || null,
+  };
   try {
-    await store.saveDayNote(noteDay, body);
-    if (body) state.dayNotes.set(noteDay, body); else state.dayNotes.delete(noteDay);
+    await store.saveDayNote(noteDay, note);
+    if (isEmptyNote(note)) state.dayNotes.delete(noteDay); else state.dayNotes.set(noteDay, { day: noteDay, ...note });
     noteDlg.close();
     render();
   } catch (e) {
@@ -1106,7 +1143,7 @@ async function loadReflect() {
 
 // キーワードを <mark> で強調しながら文字を入れる
 function highlight(node, text, q) {
-  if (!q) { node.textContent = text; return; }
+  if (!q) { node.append(text); return; }
   const lower = text.toLowerCase(), ql = q.toLowerCase();
   let i = 0;
   for (let j; (j = lower.indexOf(ql, i)) !== -1; i = j + q.length) {
@@ -1125,14 +1162,16 @@ function renderReflect() {
   const hit = s => !q || (s || '').toLowerCase().includes(q.toLowerCase());
   const byDay = new Map();
   const dayOf = d => byDay.get(d) || byDay.set(d, { note: null, items: [] }).get(d);
-  for (const n of reflectData.notes) if (hit(n.body)) dayOf(n.day).note = n.body;
+  for (const n of reflectData.notes) {
+    if (hit(n.body) || hit(n.physical_note) || hit(n.emotion_note)) dayOf(n.day).note = n;
+  }
   for (const e of reflectData.entries) {
     const cat = catById(e.category_id);
     if (hit(e.note) || hit(e.title) || hit(cat?.name)) dayOf(e.day).items.push(e);
   }
   const days = [...byDay.keys()].sort().reverse(); // 新しい日から
   if (!days.length) {
-    list.textContent = q ? '見つかりませんでした' : 'この期間にはメモもひとことも書かれていません';
+    list.textContent = q ? '見つかりませんでした' : 'この期間には日記もひとことも書かれていません';
     return;
   }
   list.replaceChildren(...days.map(d => {
@@ -1142,9 +1181,22 @@ function renderReflect() {
     h.textContent = dayLabel(d);
     sec.append(h);
     if (note) {
-      const p = el('div', 'memo-body');
-      highlight(p, note, q);
-      sec.append(p);
+      // B・E はスタンプとメモを1行ずつ、T は本文として
+      for (const [label, emoji, text] of [
+        ['B', physicalEmoji(note.physical_level), note.physical_note],
+        ['E', moodEmoji(note.emotion_level), note.emotion_note],
+      ]) {
+        if (!emoji && !text) continue;
+        const line = el('div', 'diary-line');
+        line.append(Object.assign(el('b'), { textContent: label }), `${emoji} `);
+        highlight(line, text || '', q);
+        sec.append(line);
+      }
+      if (note.body) {
+        const p = el('div', 'memo-body');
+        highlight(p, note.body, q);
+        sec.append(p);
+      }
     }
     for (const e of items.sort((a, b) => a.start_slot - b.start_slot)) {
       const cat = catById(e.category_id);
@@ -1189,7 +1241,10 @@ csvForm.addEventListener('submit', async ev => {
     let lines, count;
     if (kind === 'notes') {
       const notes = await store.listDayNotes(from, to);
-      lines = [['日付', '曜日', 'メモ'], ...notes.map(n => [n.day, WD[parseDay(n.day).getDay()], n.body])];
+      lines = [['日付', '曜日', '体', '体メモ', '感情', '感情メモ', '思考'], ...notes.map(n => [
+        n.day, WD[parseDay(n.day).getDay()],
+        physicalEmoji(n.physical_level), n.physical_note || '', moodEmoji(n.emotion_level), n.emotion_note || '', n.body || '',
+      ])];
       count = notes.length;
     } else {
       const rows = await store.listEntries(from, to);

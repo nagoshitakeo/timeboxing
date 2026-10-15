@@ -3,6 +3,9 @@
 const ENTRY_FIELDS = ['day', 'start_slot', 'end_slot', 'category_id', 'title', 'mood', 'note'];
 const CATEGORY_FIELDS = ['name', 'color', 'sort_order', 'archived'];
 const INBOX_FIELDS = ['title', 'category_id'];
+// 日記：B（体）・E（感情）・T（思考 = body）
+export const NOTE_FIELDS = ['physical_level', 'physical_note', 'emotion_level', 'emotion_note', 'body'];
+export const isEmptyNote = n => !n || NOTE_FIELDS.every(k => n[k] == null || n[k] === '');
 
 const pick = (obj, keys) => Object.fromEntries(keys.filter(k => k in obj).map(k => [k, obj[k]]));
 
@@ -87,17 +90,18 @@ function supabaseStore(sb) {
     },
 
     async listDayNotes(from, to) {
-      return check(await sb.from('day_notes').select('day, body').gte('day', from).lte('day', to).order('day'));
+      return check(await sb.from('day_notes').select(['day', ...NOTE_FIELDS].join(','))
+        .gte('day', from).lte('day', to).order('day'));
     },
-    // 空にしたら消す
-    async saveDayNote(day, body) {
-      if (!body) {
+    // 全部空にしたら消す
+    async saveDayNote(day, note) {
+      if (isEmptyNote(note)) {
         check(await sb.from('day_notes').delete().eq('day', day));
         return;
       }
       const { data } = await sb.auth.getSession();
       check(await sb.from('day_notes').upsert(
-        { user_id: data.session.user.id, day, body, updated_at: new Date().toISOString() },
+        { user_id: data.session.user.id, day, ...pick(note, NOTE_FIELDS), updated_at: new Date().toISOString() },
         { onConflict: 'user_id,day' },
       ));
     },
@@ -117,6 +121,8 @@ function localStore() {
   let db = read();
   db.inbox ??= [];
   db.dayNotes ??= {};
+  // 旧形式（本文だけの文字列）を日記の形に直す
+  for (const [d, v] of Object.entries(db.dayNotes)) if (typeof v === 'string') db.dayNotes[d] = { body: v };
   const commit = () => write(db);
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
     : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -201,10 +207,11 @@ function localStore() {
 
     async listDayNotes(from, to) {
       return Object.entries(db.dayNotes).filter(([d]) => d >= from && d <= to)
-        .sort(([a], [b]) => a.localeCompare(b)).map(([day, body]) => ({ day, body }));
+        .sort(([a], [b]) => a.localeCompare(b)).map(([day, note]) => ({ day, ...note }));
     },
-    async saveDayNote(day, body) {
-      if (body) db.dayNotes[day] = body; else delete db.dayNotes[day];
+    async saveDayNote(day, note) {
+      if (isEmptyNote(note)) delete db.dayNotes[day];
+      else db.dayNotes[day] = pick(note, NOTE_FIELDS);
       commit();
     },
   };
